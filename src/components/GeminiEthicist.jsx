@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default function GeminiEthicist({ isAuditRunning }) {
     const { user, attribute, outcome, computedResult, parsedData, addToast, setAiReport, setIsReportLoading } = useContext(AppContext);
@@ -33,7 +32,8 @@ export default function GeminiEthicist({ isAuditRunning }) {
             setAnalysisText("");
             
             try {
-                const response = await fetch('http://localhost:5000/api/audit', {
+                const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                const response = await fetch(`${API_BASE_URL}/api/audit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -67,6 +67,7 @@ export default function GeminiEthicist({ isAuditRunning }) {
         };
 
         fetchGeminiAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [attribute, outcome, computedResult, isAuditRunning]);
 
     // Typing effect logic

@@ -17,13 +17,13 @@ export const AppProvider = ({ children }) => {
     const [selectedModel, setSelectedModel] = useState("GPT-4o (Starter Tier)");
     const [aiReport, setAiReport] = useState(null);
     const [isReportLoading, setIsReportLoading] = useState(false);
-    
+
     // UI State for Modals
     const [showSignIn, setShowSignIn] = useState(false);
     const [showDemo, setShowDemo] = useState(false);
     const [showDocs, setShowDocs] = useState(false);
     const [showReport, setShowReport] = useState(false);
-    
+
     // Toast System
     const [toasts, setToasts] = useState([]);
     const addToast = (msg, type = "info") => {
@@ -32,10 +32,12 @@ export const AppProvider = ({ children }) => {
         setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), 3500);
     };
 
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
     // Auth Actions
     const login = async (email, password) => {
         try {
-            const response = await fetch('http://localhost:5000/api/auth/login', {
+            const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
@@ -71,7 +73,7 @@ export const AppProvider = ({ children }) => {
         const t = userToken || token;
         if (!id || !t) return;
         try {
-            const response = await fetch(`http://localhost:5000/api/audits/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/api/audits/${id}`, {
                 headers: { 'Authorization': `Bearer ${t}` }
             });
             if (response.ok) {
@@ -87,6 +89,7 @@ export const AppProvider = ({ children }) => {
         if (user && token) {
             fetchHistory();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (

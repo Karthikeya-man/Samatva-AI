@@ -1,5 +1,5 @@
 import React, { useContext, useRef, useState } from 'react';
-import { X, Scale, Globe, Play, FileText, ShieldCheck, AlertTriangle, CheckCircle, Info, Download } from 'lucide-react';
+import { X, Scale, Play, FileText, ShieldCheck, AlertTriangle, CheckCircle, Info, Download } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -12,11 +12,16 @@ export default function Modals() {
         showReport, setShowReport,
         toasts, addToast,
         attribute, outcome, computedResult, aiReport, isReportLoading,
-        login
+        login,
+        user
     } = useContext(AppContext);
 
     const reportRef = useRef(null);
+    const headerRef = useRef(null);
+    const contentRef = useRef(null);
+    const footerRef = useRef(null);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [logoError, setLogoError] = useState(false);
     const [isRegister, setIsRegister] = useState(false);
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
@@ -26,7 +31,8 @@ export default function Modals() {
         e.preventDefault();
         if (isRegister) {
             try {
-                const response = await fetch('http://localhost:5000/api/auth/register', {
+                const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password, name })
@@ -46,17 +52,53 @@ export default function Modals() {
     };
 
     const handleDownloadPDF = async () => {
-        if (!reportRef.current) return;
+        if (!headerRef.current || !contentRef.current || !footerRef.current) return;
         setIsDownloading(true);
         try {
             addToast("Generating PDF report...", "info");
-            const canvas = await html2canvas(reportRef.current, { backgroundColor: '#080f22' });
-            const imgData = canvas.toDataURL('image/png');
+            
+            const headerCanvas = await html2canvas(headerRef.current, { backgroundColor: '#ffffff', scale: 2 });
+            const contentCanvas = await html2canvas(contentRef.current, { backgroundColor: '#ffffff', scale: 2 });
+            const footerCanvas = await html2canvas(footerRef.current, { backgroundColor: '#ffffff', scale: 2 });
+
+            const headerImg = headerCanvas.toDataURL('image/png');
+            const contentImg = contentCanvas.toDataURL('image/png');
+            const footerImg = footerCanvas.toDataURL('image/png');
+
             const pdf = new jsPDF('p', 'mm', 'a4');
             const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+            const pageHeight = pdf.internal.pageSize.getHeight();
             
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            const headerHeight = (headerCanvas.height * pdfWidth) / headerCanvas.width;
+            const footerHeight = (footerCanvas.height * pdfWidth) / footerCanvas.width;
+            const contentHeight = (contentCanvas.height * pdfWidth) / contentCanvas.width;
+            
+            const contentAreaHeight = pageHeight - headerHeight - footerHeight;
+
+            let heightLeft = contentHeight;
+            let yOffset = 0;
+            let isFirstPage = true;
+
+            while (heightLeft > 0) {
+                if (!isFirstPage) {
+                    pdf.addPage();
+                }
+
+                const contentY = headerHeight - yOffset;
+                pdf.addImage(contentImg, 'PNG', 0, contentY, pdfWidth, contentHeight);
+
+                pdf.setFillColor(255, 255, 255);
+                pdf.rect(0, 0, pdfWidth, headerHeight, 'F');
+                pdf.rect(0, pageHeight - footerHeight, pdfWidth, footerHeight, 'F');
+
+                pdf.addImage(headerImg, 'PNG', 0, 0, pdfWidth, headerHeight);
+                pdf.addImage(footerImg, 'PNG', 0, pageHeight - footerHeight, pdfWidth, footerHeight);
+
+                heightLeft -= contentAreaHeight;
+                yOffset += contentAreaHeight;
+                isFirstPage = false;
+            }
+
             pdf.save(`samatva_ai_audit_report_${new Date().getTime()}.pdf`);
             addToast("PDF generated successfully!", "success");
         } catch (error) {
@@ -75,7 +117,7 @@ export default function Modals() {
                     <div className="relative w-full max-w-md mx-4 rounded-2xl border border-white/[0.1] p-8" style={{ background: "rgba(8,15,34,0.97)", backdropFilter: "blur(30px)" }} onClick={e => e.stopPropagation()}>
                         <button onClick={() => setShowSignIn(false)} className="absolute top-4 right-4 text-white/30 hover:text-white transition-colors"><X size={18} /></button>
                         <div className="flex items-center gap-2.5 mb-6">
-                            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}><Scale size={16} className="text-white" /></div>
+                            <img src="/logo.png" alt="Samatva AI Logo" className="h-8 w-auto" />
                             <span className="text-white font-black text-lg">Samatva<span className="text-indigo-400">AI</span></span>
                         </div>
                         <h3 className="text-xl font-black text-white mb-1">{isRegister ? "Create Account" : "Welcome back"}</h3>
@@ -244,6 +286,90 @@ export default function Modals() {
                         <p className="text-xs font-semibold text-white/70">{t.msg}</p>
                     </div>
                 ))}
+            </div>
+
+            {/* HIDDEN BRANDED PDF TEMPLATE (LIGHT THEME) */}
+            <div className="fixed left-[-9999px] top-[-9999px] z-[-1] overflow-hidden bg-white">
+                {/* Header Template */}
+                <div ref={headerRef} className="w-[800px] bg-white text-slate-900 px-12 pt-12 pb-4" style={{ fontFamily: "Arial, sans-serif" }}>
+                    <div className="flex items-center justify-between border-b-2 border-slate-200 pb-6">
+                        <div className="flex items-center gap-3">
+                            {!logoError ? (
+                                <img src="/logo.png" alt="Samatva AI Logo" className="h-10 w-auto" onError={() => setLogoError(true)} />
+                            ) : (
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-600">
+                                    <Scale size={20} className="text-white" />
+                                </div>
+                            )}
+                            <span className="font-black text-2xl text-slate-900 tracking-tight">Samatva<span className="text-indigo-600">AI</span></span>
+                        </div>
+                        <div className="text-right">
+                            <h1 className="text-xl font-black text-slate-800 uppercase tracking-widest">Compliance Report</h1>
+                            <p className="text-sm font-semibold text-slate-500 mt-1">{new Date().toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Content Template (Metadata + Text) */}
+                <div ref={contentRef} className="w-[800px] bg-white text-slate-900 px-12 py-4" style={{ fontFamily: "Arial, sans-serif" }}>
+                    {/* Metadata */}
+                    <div className="bg-slate-50 rounded-xl p-6 mb-8 border border-slate-200 grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Generated By</p>
+                            <p className="text-sm font-semibold text-slate-800">{user?.name || user?.email || "Guest Auditor"}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Audit Target</p>
+                            <p className="text-sm font-semibold text-slate-800">{outcome} / {attribute}</p>
+                        </div>
+                        {computedResult && (
+                            <>
+                                <div>
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Fairness Score</p>
+                                    <p className={`text-sm font-black ${computedResult.score < 0.8 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                        {(computedResult.score * 100).toFixed(1)}%
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
+                                    <p className={`text-sm font-black ${computedResult.score < 0.8 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                        {computedResult.score < 0.8 ? "High Risk" : "Compliant"}
+                                    </p>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Report Content */}
+                    <div className="space-y-4 min-h-[400px]">
+                        {aiReport ? (
+                            aiReport.split('\n').map((line, i) => {
+                                const isHeader = line.includes('SUMMARY') || line.includes('ALIGNMENT') || line.includes('MITIGATIONS');
+                                return (
+                                    <p key={i} className={`${isHeader ? 'text-indigo-700 font-black text-sm tracking-widest mt-8 border-b border-slate-200 pb-2 mb-4' : 'text-slate-700 text-sm leading-relaxed'} whitespace-pre-wrap`}>
+                                        {line}
+                                    </p>
+                                );
+                            })
+                        ) : computedResult ? (
+                            <div className="text-slate-700 text-sm leading-relaxed">
+                                {computedResult.score < 0.8 
+                                    ? `The audited model shows significant disparity in ${outcome} based on ${attribute} (Score: ${computedResult.score.toFixed(2)}).` 
+                                    : `The audited model meets fairness standards for ${outcome} across ${attribute} groups (Score: ${computedResult.score.toFixed(2)}).`}
+                            </div>
+                        ) : (
+                            <p className="text-slate-500 italic">No detailed AI report generated for this audit.</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Footer Template */}
+                <div ref={footerRef} className="w-[800px] bg-white text-slate-900 px-12 pt-4 pb-12" style={{ fontFamily: "Arial, sans-serif" }}>
+                    <div className="pt-6 border-t border-slate-200 flex justify-between items-center text-xs text-slate-400">
+                        <p className="font-semibold">This official report is automatically generated by Samatva AI Platform.</p>
+                        <p className="font-bold text-indigo-600">Samatva AI</p>
+                    </div>
+                </div>
             </div>
         </>
     );

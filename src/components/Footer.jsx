@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scale } from 'lucide-react';
+
 import { Link } from 'react-router-dom';
 
 export default function Footer() {
@@ -10,10 +10,7 @@ export default function Footer() {
                     {/* Brand */}
                     <div>
                         <div className="flex items-center gap-2.5 mb-4">
-                            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                                style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
-                                <Scale size={16} className="text-white" />
-                            </div>
+                            <img src="/logo.png" alt="Samatva AI Logo" className="h-8 w-auto" />
                             <span className="text-white font-black text-lg tracking-tight">
                                 Samatva<span className="text-indigo-400">AI</span>
                             </span>

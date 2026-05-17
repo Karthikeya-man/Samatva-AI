@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Scale, Menu, X, ArrowUpRight } from 'lucide-react';
+import { Menu, X, ArrowUpRight } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 
@@ -37,10 +37,7 @@ export default function Navbar() {
             <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-16">
                 {/* Logo */}
                 <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate("/")}>
-                    <div className="logo-glow w-8 h-8 rounded-lg flex items-center justify-center"
-                        style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
-                        <Scale size={16} className="text-white" />
-                    </div>
+                    <img src="/logo.png" alt="Samatva AI Logo" className="h-8 w-auto" />
                     <span className="text-white font-black text-lg tracking-tight">
                         Samatva<span className="text-indigo-400">AI</span>
                     </span>
