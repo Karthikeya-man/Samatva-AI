@@ -35,15 +35,51 @@ export default function GeminiEthicist({ isAuditRunning }) {
         const highGroup = computedResult?.g[0]?.group || "Majority";
         const highRate = computedResult?.g[0]?.rate || 0;
 
-        const ethicistPrompt = `You are an expert AI Ethicist and Compliance Officer. 
-Audit context: Attribute="${attribute}", Outcome="${outcome}". 
-Results: Score=${score}, LowGroup="${lowGroup}" (${lowRate}%), HighGroup="${highGroup}" (${highRate}%).
-Provide a concise, professional 2-3 sentence ethical analysis. No formatting.`;
+        const allGroups = computedResult?.g?.map(g => `${g.group}: ${g.rate}%`).join(', ') || `${highGroup}: ${highRate}%, ${lowGroup}: ${lowRate}%`;
+        const severity = computedResult?.sev || (score < 0.6 ? 'Critical' : score < 0.8 ? 'High' : 'Low');
+        const gap = computedResult?.gap || `–${highRate - lowRate}pp`;
+        const totalRows = computedResult?.totalRows || 'N/A';
 
-        const reportPrompt = `Generate a detailed AI Compliance Report for an audit of "${outcome}" based on "${attribute}". 
-Results: Fairness Score ${score}, LowGroup=${lowGroup} (${lowRate}%).
-Sections: EXECUTIVE SUMMARY, REGULATORY ALIGNMENT (EU AI Act, US EEOC, India AI Act), RECOMMENDED MITIGATIONS.
-No markdown headers, use ALL CAPS for section titles.`;
+        const ethicistPrompt = `You are a senior AI Ethicist and Compliance Officer issuing a formal finding.
+Audit: Protected Attribute="${attribute}", Decision Outcome="${outcome}".
+Dataset: ${totalRows} records analyzed. Disparate Impact Score=${score} (threshold: 0.80). Severity=${severity}.
+Group breakdown: ${allGroups}. Approval gap=${gap}.
+Write a precise, authoritative 2-3 sentence ethical assessment of the bias found. No bullet points. No formatting. Plain sentences only.`;
+
+        const reportPrompt = `You are a senior AI Compliance Officer. Write a comprehensive, formal AI Bias Audit Report. Do not use markdown. Use ALL CAPS for every section title. Write in full paragraphs, not bullet points.
+
+AUDIT METADATA
+Protected Attribute audited: ${attribute}. Decision outcome audited: ${outcome}. Total records analyzed: ${totalRows}. Disparate Impact Score: ${score} (regulatory threshold is 0.80 — scores below this indicate illegal bias). Risk severity classification: ${severity}. Group approval rates: ${allGroups}. Approval rate gap: ${gap}.
+
+EXECUTIVE SUMMARY
+Write 3-4 sentences summarizing what bias was found, which group is disadvantaged (${lowGroup} at ${lowRate}% vs ${highGroup} at ${highRate}%), the magnitude of harm, and the urgency of remediation.
+
+DETAILED FINDINGS
+Write 3-4 sentences explaining the statistical findings in depth. Describe what the ${score} Disparate Impact Score means in plain terms, how the ${gap} gap manifests in real decisions (e.g., loan denials, hiring rejections), and how many people are likely affected across ${totalRows} records.
+
+REGULATORY ALIGNMENT
+Analyze compliance against three frameworks:
+1. EU AI Act 2024 — state whether this system qualifies as high-risk under Annex III and which specific articles (Article 10, 13, 14) are violated.
+2. US EEOC 4/5ths Rule — state whether the ${score} score constitutes disparate impact under Title VII and the legal exposure.
+3. India Digital Personal Data Protection Act / India AI Governance Framework — state the obligations around fairness and explainability.
+
+RECOMMENDED MITIGATIONS — PHASE 1: DATA
+Provide 3 concrete data-level remediation steps specific to fixing bias in ${attribute} for ${outcome} predictions. Write each as an actionable instruction, not a suggestion.
+
+RECOMMENDED MITIGATIONS — PHASE 2: MODEL
+Provide 3 concrete model-level steps: applying fairness constraints or adversarial debiasing during retraining, setting a minimum Disparate Impact Score of 0.80 as a deployment gate, and validating on a held-out fairness benchmark before any production release.
+
+RECOMMENDED MITIGATIONS — PHASE 3: GOVERNANCE
+Provide 3 governance steps: appointing a Fairness Officer, documenting all mitigation steps for regulatory audit trails (EU AI Act Article 13), and implementing continuous automated monitoring with alerts when the live ${attribute} → ${outcome} score drops below 0.80.
+
+DEBIASING ACTION PLAN SUMMARY
+Write a clear, numbered 9-step action plan summarizing all remediation steps across data, model, and governance phases. Each step should be one sentence and directly actionable. Number them 1 through 9.
+
+RE-AUDIT RECOMMENDATION
+Write 2-3 sentences explaining that after applying the above debiasing steps, the organization must upload their corrected dataset and re-run this audit using the Re-Audit After Fix feature to validate the improvement. State that a score of 0.80 or above is required for regulatory compliance, and that the before-and-after score comparison will be automatically generated to document the remediation for auditors.
+
+CONCLUSION
+Write 2-3 closing sentences on why eliminating this bias is both a legal obligation and a strategic imperative — covering legal risk reduction, ethical responsibility, and the business benefit of serving all demographic groups equitably.`;
 
         let lastError = null;
         for (const modelName of modelsToTry) {

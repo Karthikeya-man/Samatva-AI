@@ -237,7 +237,7 @@ export default function Modals() {
                             ) : aiReport ? (
                                 <div className="space-y-8 animate-fade-up">
                                     {aiReport.split('\n').map((line, i) => {
-                                        const isHeader = line.includes('SUMMARY') || line.includes('ALIGNMENT') || line.includes('MITIGATIONS');
+                                        const isHeader = /^(AUDIT METADATA|EXECUTIVE SUMMARY|DETAILED FINDINGS|REGULATORY ALIGNMENT|RECOMMENDED MITIGATIONS|DEBIASING ACTION PLAN|RE-AUDIT RECOMMENDATION|CONCLUSION)/i.test(line.trim());
                                         return (
                                             <p key={i} className={`${isHeader ? 'text-indigo-400 font-black text-xs tracking-widest mt-6' : 'text-white/70 text-sm leading-relaxed'} whitespace-pre-wrap`}>
                                                 {line}
@@ -344,7 +344,7 @@ export default function Modals() {
                     <div className="space-y-4 min-h-[400px]">
                         {aiReport ? (
                             aiReport.split('\n').map((line, i) => {
-                                const isHeader = line.includes('SUMMARY') || line.includes('ALIGNMENT') || line.includes('MITIGATIONS');
+                                const isHeader = /^(AUDIT METADATA|EXECUTIVE SUMMARY|DETAILED FINDINGS|REGULATORY ALIGNMENT|RECOMMENDED MITIGATIONS|DEBIASING ACTION PLAN|RE-AUDIT RECOMMENDATION|CONCLUSION)/i.test(line.trim());
                                 return (
                                     <p key={i} className={`${isHeader ? 'text-indigo-700 font-black text-sm tracking-widest mt-8 border-b border-slate-200 pb-2 mb-4' : 'text-slate-700 text-sm leading-relaxed'} whitespace-pre-wrap`}>
                                         {line}
