@@ -56,47 +56,48 @@ export default function Modals() {
         setIsDownloading(true);
         try {
             addToast("Generating PDF report...", "info");
-            
-            const headerCanvas = await html2canvas(headerRef.current, { backgroundColor: '#ffffff', scale: 2 });
-            const contentCanvas = await html2canvas(contentRef.current, { backgroundColor: '#ffffff', scale: 2 });
-            const footerCanvas = await html2canvas(footerRef.current, { backgroundColor: '#ffffff', scale: 2 });
 
-            const headerImg = headerCanvas.toDataURL('image/png');
-            const contentImg = contentCanvas.toDataURL('image/png');
-            const footerImg = footerCanvas.toDataURL('image/png');
-
+            const scale = 2;
             const pdf = new jsPDF('p', 'mm', 'a4');
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
-            
-            const headerHeight = (headerCanvas.height * pdfWidth) / headerCanvas.width;
-            const footerHeight = (footerCanvas.height * pdfWidth) / footerCanvas.width;
-            const contentHeight = (contentCanvas.height * pdfWidth) / contentCanvas.width;
-            
-            const contentAreaHeight = pageHeight - headerHeight - footerHeight;
+            const margin = { x: 10, top: 10, bottom: 10 };
 
-            let heightLeft = contentHeight;
-            let yOffset = 0;
-            let isFirstPage = true;
+            // ── Render header ──
+            const headerCanvas = await html2canvas(headerRef.current, { backgroundColor: '#ffffff', scale });
+            const headerH = (headerCanvas.height * (pdfWidth - margin.x * 2)) / headerCanvas.width;
+            pdf.addImage(headerCanvas.toDataURL('image/png'), 'PNG', margin.x, margin.top, pdfWidth - margin.x * 2, headerH);
 
-            while (heightLeft > 0) {
-                if (!isFirstPage) {
+            // ── Render footer reference ──
+            const footerCanvas = await html2canvas(footerRef.current, { backgroundColor: '#ffffff', scale });
+            const footerH = (footerCanvas.height * (pdfWidth - margin.x * 2)) / footerCanvas.width;
+            const footerY = pageHeight - margin.bottom - footerH;
+
+            const addFooter = () => {
+                pdf.addImage(footerCanvas.toDataURL('image/png'), 'PNG', margin.x, footerY, pdfWidth - margin.x * 2, footerH);
+            };
+            addFooter();
+
+            // ── Render content blocks individually to avoid mid-text cuts ──
+            const contentWrapper = contentRef.current;
+            const blocks = Array.from(contentWrapper.children); // each child is a section block
+            const usableWidth = pdfWidth - margin.x * 2;
+            let cursorY = margin.top + headerH + 6;
+            const maxY = footerY - 4;
+
+            for (const block of blocks) {
+                const blockCanvas = await html2canvas(block, { backgroundColor: '#ffffff', scale });
+                const blockH = (blockCanvas.height * usableWidth) / blockCanvas.width;
+
+                // If this block doesn't fit, add a new page
+                if (cursorY + blockH > maxY) {
                     pdf.addPage();
+                    cursorY = margin.top;
+                    addFooter();
                 }
 
-                const contentY = headerHeight - yOffset;
-                pdf.addImage(contentImg, 'PNG', 0, contentY, pdfWidth, contentHeight);
-
-                pdf.setFillColor(255, 255, 255);
-                pdf.rect(0, 0, pdfWidth, headerHeight, 'F');
-                pdf.rect(0, pageHeight - footerHeight, pdfWidth, footerHeight, 'F');
-
-                pdf.addImage(headerImg, 'PNG', 0, 0, pdfWidth, headerHeight);
-                pdf.addImage(footerImg, 'PNG', 0, pageHeight - footerHeight, pdfWidth, footerHeight);
-
-                heightLeft -= contentAreaHeight;
-                yOffset += contentAreaHeight;
-                isFirstPage = false;
+                pdf.addImage(blockCanvas.toDataURL('image/png'), 'PNG', margin.x, cursorY, usableWidth, blockH);
+                cursorY += blockH + 4;
             }
 
             pdf.save(`samatva_ai_audit_report_${new Date().getTime()}.pdf`);
@@ -406,84 +407,116 @@ export default function Modals() {
 
             {/* HIDDEN BRANDED PDF TEMPLATE (LIGHT THEME) */}
             <div className="fixed left-[-9999px] top-[-9999px] z-[-1] overflow-hidden bg-white">
-                {/* Header Template */}
-                <div ref={headerRef} className="w-[800px] bg-white text-slate-900 px-12 pt-12 pb-4" style={{ fontFamily: "Arial, sans-serif" }}>
-                    <div className="flex items-center justify-between border-b-2 border-slate-200 pb-6">
+
+                {/* ── PDF Header ── */}
+                <div ref={headerRef} className="w-[800px] bg-white px-12 pt-10 pb-6" style={{ fontFamily: "'Arial', sans-serif" }}>
+                    <div className="flex items-start justify-between pb-5" style={{ borderBottom: "2px solid #e2e8f0" }}>
                         <div className="flex items-center gap-3">
                             {!logoError ? (
-                                <img src="/logo.png" alt="Samatva AI Logo" className="h-10 w-auto" onError={() => setLogoError(true)} />
+                                <img src="/logo.png" alt="Samatva AI" className="h-10 w-auto" onError={() => setLogoError(true)} />
                             ) : (
-                                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-indigo-600">
-                                    <Scale size={20} className="text-white" />
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "#4f46e5" }}>
+                                    <Scale size={20} style={{ color: "#fff" }} />
                                 </div>
                             )}
-                            <span className="font-black text-2xl text-slate-900 tracking-tight">Samatva<span className="text-indigo-600">AI</span></span>
-                        </div>
-                        <div className="text-right">
-                            <h1 className="text-xl font-black text-slate-800 uppercase tracking-widest">Compliance Report</h1>
-                            <p className="text-sm font-semibold text-slate-500 mt-1">{new Date().toLocaleDateString()}</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Content Template (Metadata + Text) */}
-                <div ref={contentRef} className="w-[800px] bg-white text-slate-900 px-12 py-4" style={{ fontFamily: "Arial, sans-serif" }}>
-                    {/* Metadata */}
-                    <div className="bg-slate-50 rounded-xl p-6 mb-8 border border-slate-200 grid grid-cols-2 gap-4">
-                        <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Generated By</p>
-                            <p className="text-sm font-semibold text-slate-800">{user?.name || user?.email || "Guest Auditor"}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Audit Target</p>
-                            <p className="text-sm font-semibold text-slate-800">{outcome} / {attribute}</p>
-                        </div>
-                        {computedResult && (
-                            <>
-                                <div>
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Fairness Score</p>
-                                    <p className={`text-sm font-black ${computedResult.score < 0.8 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                        {(computedResult.score * 100).toFixed(1)}%
-                                    </p>
-                                </div>
-                                <div>
-                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
-                                    <p className={`text-sm font-black ${computedResult.score < 0.8 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                        {computedResult.score < 0.8 ? "High Risk" : "Compliant"}
-                                    </p>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Report Content */}
-                    <div className="space-y-4 min-h-[400px]">
-                        {aiReport ? (
-                            aiReport.split('\n').map((line, i) => {
-                                const isHeader = /^(AUDIT METADATA|EXECUTIVE SUMMARY|DETAILED FINDINGS|REGULATORY ALIGNMENT|RECOMMENDED MITIGATIONS|DEBIASING ACTION PLAN|RE-AUDIT RECOMMENDATION|CONCLUSION)/i.test(line.trim());
-                                return (
-                                    <p key={i} className={`${isHeader ? 'text-indigo-700 font-black text-sm tracking-widest mt-8 border-b border-slate-200 pb-2 mb-4' : 'text-slate-700 text-sm leading-relaxed'} whitespace-pre-wrap`}>
-                                        {line}
-                                    </p>
-                                );
-                            })
-                        ) : computedResult ? (
-                            <div className="text-slate-700 text-sm leading-relaxed">
-                                {computedResult.score < 0.8 
-                                    ? `The audited model shows significant disparity in ${outcome} based on ${attribute} (Score: ${computedResult.score.toFixed(2)}).` 
-                                    : `The audited model meets fairness standards for ${outcome} across ${attribute} groups (Score: ${computedResult.score.toFixed(2)}).`}
+                            <div>
+                                <p style={{ fontSize: 22, fontWeight: 900, color: "#0f172a", letterSpacing: "-0.5px", lineHeight: 1 }}>SamatvaAI</p>
+                                <p style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 2 }}>Automated AI Governance Platform</p>
                             </div>
-                        ) : (
-                            <p className="text-slate-500 italic">No detailed AI report generated for this audit.</p>
-                        )}
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                            <p style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.1em" }}>AI Bias Audit</p>
+                            <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.08em" }}>Compliance Report</p>
+                            <p style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                        </div>
                     </div>
+
+                    {/* KPI row */}
+                    {computedResult && (
+                        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+                            {[
+                                { label: "Protected Attribute", value: attribute },
+                                { label: "Decision Outcome", value: outcome },
+                                { label: "Fairness Score", value: `${(computedResult.score * 100).toFixed(1)}%`, color: computedResult.score < 0.8 ? "#e11d48" : "#059669" },
+                                { label: "Risk Level", value: computedResult.sev, color: computedResult.sev === 'Critical' ? "#e11d48" : "#d97706" },
+                                { label: "Records", value: computedResult.totalRows?.toLocaleString() || 'N/A' },
+                                { label: "Approval Gap", value: computedResult.gap, color: "#e11d48" },
+                            ].map((k, i) => (
+                                <div key={i} style={{ flex: 1, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
+                                    <p style={{ fontSize: 8, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>{k.label}</p>
+                                    <p style={{ fontSize: 12, fontWeight: 800, color: k.color || "#0f172a" }}>{k.value}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Compliance status */}
+                    {computedResult && (
+                        <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, border: `1px solid ${computedResult.score < 0.8 ? "#fecdd3" : "#bbf7d0"}`, background: computedResult.score < 0.8 ? "#fff1f2" : "#f0fdf4", display: "flex", alignItems: "center", gap: 10 }}>
+                            <p style={{ fontSize: 10, fontWeight: 800, color: computedResult.score < 0.8 ? "#e11d48" : "#059669", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                {computedResult.score < 0.8 ? "⚠ NON-COMPLIANT — Disparate Impact Score below regulatory threshold of 0.80. Immediate remediation required." : "✓ COMPLIANT — Disparate Impact Score meets the 0.80 regulatory threshold."}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
-                {/* Footer Template */}
-                <div ref={footerRef} className="w-[800px] bg-white text-slate-900 px-12 pt-4 pb-12" style={{ fontFamily: "Arial, sans-serif" }}>
-                    <div className="pt-6 border-t border-slate-200 flex justify-between items-center text-xs text-slate-400">
-                        <p className="font-semibold">This official report is automatically generated by Samatva AI Platform.</p>
-                        <p className="font-bold text-indigo-600">Samatva AI</p>
+                {/* ── PDF Content — one div per section for page-break-safe rendering ── */}
+                <div ref={contentRef} className="w-[800px] bg-white px-12" style={{ fontFamily: "'Arial', sans-serif" }}>
+                    {(() => {
+                        if (!aiReport) return (
+                            <div style={{ padding: "16px 0", color: "#64748b", fontSize: 13 }}>No report generated. Please run an audit first.</div>
+                        );
+                        const HEADER_RE = /^(AUDIT METADATA|EXECUTIVE SUMMARY|DETAILED FINDINGS|REGULATORY ALIGNMENT|RECOMMENDED MITIGATIONS|DEBIASING ACTION PLAN|RE-AUDIT RECOMMENDATION|CONCLUSION)/i;
+                        const rawLines = aiReport.split('\n');
+                        const sections = [];
+                        let cur = null;
+                        for (const line of rawLines) {
+                            const t = line.trim();
+                            if (!t) continue;
+                            if (HEADER_RE.test(t)) {
+                                if (cur) sections.push(cur);
+                                cur = { title: t, lines: [] };
+                            } else if (cur) {
+                                cur.lines.push(t);
+                            }
+                        }
+                        if (cur) sections.push(cur);
+
+                        return sections.map((sec, si) => (
+                            <div key={si} style={{ marginBottom: 24, paddingTop: 8 }}>
+                                {/* Section heading — BLACK, bold, uppercase with bottom border */}
+                                <div style={{ borderBottom: "2px solid #0f172a", paddingBottom: 6, marginBottom: 12 }}>
+                                    <p style={{ fontSize: 10, fontWeight: 900, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.15em", margin: 0 }}>{sec.title}</p>
+                                </div>
+                                {/* Section content */}
+                                <div style={{ paddingLeft: 4 }}>
+                                    {sec.lines.map((para, pi) => {
+                                        const numMatch = para.match(/^(\d+)\.\s+(.+)/);
+                                        if (numMatch) return (
+                                            <div key={pi} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                                                <span style={{ minWidth: 20, height: 20, background: "#e0e7ff", color: "#3730a3", borderRadius: "50%", fontSize: 9, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
+                                                <p style={{ fontSize: 12, color: "#1e293b", lineHeight: 1.7, margin: 0 }}>{numMatch[2]}</p>
+                                            </div>
+                                        );
+                                        if (/^(EU AI Act|US EEOC|India|EEOC)/i.test(para.replace(/^\d+\.\s*/, ''))) return (
+                                            <div key={pi} style={{ display: "flex", gap: 8, marginBottom: 6, paddingLeft: 8, alignItems: "flex-start" }}>
+                                                <span style={{ color: "#4f46e5", fontWeight: 900, fontSize: 11, flexShrink: 0 }}>▸</span>
+                                                <p style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, margin: 0 }}>{para.replace(/^\d+\.\s*/, '')}</p>
+                                            </div>
+                                        );
+                                        return <p key={pi} style={{ fontSize: 12, color: "#334155", lineHeight: 1.8, marginBottom: 6 }}>{para}</p>;
+                                    })}
+                                </div>
+                            </div>
+                        ));
+                    })()}
+                </div>
+
+                {/* ── PDF Footer ── */}
+                <div ref={footerRef} className="w-[800px] bg-white px-12 py-6" style={{ fontFamily: "'Arial', sans-serif" }}>
+                    <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <p style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Automatically generated by Samatva AI · Confidential · For Internal Use Only</p>
+                        <p style={{ fontSize: 9, color: "#4f46e5", fontWeight: 800, letterSpacing: "0.05em" }}>SAMATVA AI</p>
                     </div>
                 </div>
             </div>
