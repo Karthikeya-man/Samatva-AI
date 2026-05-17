@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from "react";
+import { useState, useEffect, useContext, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import {
     Scale, UploadCloud, AlertTriangle, CheckCircle, XCircle,
@@ -132,6 +132,8 @@ export default function DashboardPage() {
     const [uploadedFile, setUploadedFile] = useState(null);
     const [displayScore, setDisplayScore] = useState(0.74);
     const [processingCount, setProcessingCount] = useState(0);
+    const [previousScore, setPreviousScore] = useState(null);
+    const reAuditInputRef = useRef(null);
 
     const loadHistoryAudit = (audit) => {
         setAttribute(audit.attribute);
@@ -177,6 +179,7 @@ export default function DashboardPage() {
     };
 
     const handleAudit = () => {
+        if (computedResult) setPreviousScore(computedResult.score);
         setIsAuditRunning(true);
         setAuditComplete(false);
         setProcessingCount(0);
@@ -208,6 +211,64 @@ export default function DashboardPage() {
             setIsAuditRunning(false);
             setAuditComplete(true);
         }, 1500);
+    };
+
+    // Derived: What-If scenario from uploaded data
+    const scenario = useMemo(() => {
+        if (!parsedData || !computedResult || computedResult.g.length < 2) return null;
+        const cols = Object.keys(parsedData[0] || {});
+        let numericCol = null;
+        let avgValue = null;
+        for (const col of cols) {
+            if (col === attribute || col === outcome) continue;
+            const vals = parsedData.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+            if (vals.length > parsedData.length * 0.4) {
+                numericCol = col;
+                avgValue = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+                break;
+            }
+        }
+        return {
+            numericCol,
+            avgValue,
+            highGroup: computedResult.g[0],
+            lowGroup: computedResult.g[computedResult.g.length - 1],
+        };
+    }, [parsedData, computedResult, attribute, outcome]);
+
+    const handleReAudit = (e) => {
+        const file = e.target?.files?.[0];
+        if (!file) return;
+        if (computedResult) setPreviousScore(computedResult.score);
+        setUploadedFile(file);
+        setIsAuditRunning(true);
+        setAuditComplete(false);
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                const rows = results.data;
+                setParsedData(rows);
+                const cols = detectColumns(rows);
+                setDetectedCols(cols);
+                const newAttr = cols.attrs.includes(attribute) ? attribute : (cols.attrs[0] || attribute);
+                const newOut = cols.outs.includes(outcome) ? outcome : (cols.outs[0] || outcome);
+                if (newAttr) setAttribute(newAttr);
+                if (newOut) setOutcome(newOut);
+                const result = computeFairness(rows, newAttr, newOut);
+                if (result) {
+                    setComputedResult(result);
+                    setDisplayScore(result.score);
+                    setProcessingCount(rows.length);
+                    addToast(`Re-audit complete — ${rows.length.toLocaleString()} rows analyzed`, result.sev === 'Critical' || result.sev === 'High' ? 'warning' : 'success');
+                } else {
+                    addToast('Could not compute — check column names match', 'warning');
+                }
+                setIsAuditRunning(false);
+                setAuditComplete(true);
+            },
+            error: () => { addToast('Failed to parse file', 'warning'); setIsAuditRunning(false); }
+        });
     };
 
     return (
@@ -405,7 +466,176 @@ export default function DashboardPage() {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Before vs After comparison banner */}
+                                    {previousScore !== null && !isAuditRunning && (
+                                        <div className="mt-5 p-4 rounded-xl border border-indigo-500/25 animate-fade-up" style={{ background: "rgba(99,102,241,0.07)" }}>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-1.5"><Sparkles size={11} /> Before vs After Comparison</p>
+                                            <div className="grid grid-cols-2 gap-3 mb-3">
+                                                <div className="text-center p-3 rounded-lg border" style={{ background: "rgba(244,63,94,0.1)", borderColor: "rgba(244,63,94,0.25)" }}>
+                                                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-1">Before Fix</p>
+                                                    <p className="text-2xl font-black text-rose-400">{previousScore.toFixed(2)}</p>
+                                                    <p className="text-[10px] text-white/25">Original Dataset</p>
+                                                </div>
+                                                <div className="text-center p-3 rounded-lg border" style={{ background: "rgba(16,185,129,0.1)", borderColor: "rgba(16,185,129,0.25)" }}>
+                                                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-1">After Fix</p>
+                                                    <p className="text-2xl font-black text-emerald-400">{displayScore.toFixed(2)}</p>
+                                                    <p className="text-[10px] text-white/25">Updated Dataset</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-center py-2 rounded-lg" style={{ background: displayScore > previousScore ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)" }}>
+                                                {displayScore > previousScore
+                                                    ? <p className="text-emerald-400 text-xs font-black">🎉 Fairness improved by +{((displayScore - previousScore) * 100).toFixed(1)}pp — great work!</p>
+                                                    : displayScore < previousScore
+                                                    ? <p className="text-rose-400 text-xs font-black">⚠️ Score dropped by {((previousScore - displayScore) * 100).toFixed(1)}pp — review your debiasing steps.</p>
+                                                    : <p className="text-amber-400 text-xs font-black">No change detected — try further debiasing steps.</p>
+                                                }
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
+
+                                {/* Step 4: What-If Scenario Simulator */}
+                                {computedResult && scenario && (
+                                    <div className="rounded-2xl p-6 border animate-fade-up" style={{ background: "rgba(109,40,217,0.05)", borderColor: "rgba(139,92,246,0.2)" }}>
+                                        <div className="flex items-center gap-3 mb-5">
+                                            <div className="flex items-center justify-center w-7 h-7 rounded-full font-black text-xs border" style={{ background: "rgba(139,92,246,0.2)", color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>4</div>
+                                            <div>
+                                                <h2 className="text-sm font-bold text-white">What-If Scenario Simulator</h2>
+                                                <p className="text-[10px] text-white/40 mt-0.5">How the old model treats two identical applicants differently based on <span className="text-violet-400 font-semibold">{attribute}</span>.</p>
+                                            </div>
+                                        </div>
+
+                                        <p className="text-center text-[11px] text-white/40 mb-5">
+                                            Hypothetical applicant{scenario.numericCol ? ` · ${scenario.numericCol}: ${scenario.avgValue}` : ''} · Applying for: <span className="text-white font-bold">{outcome}</span>
+                                        </p>
+
+                                        <div className="grid grid-cols-2 gap-4 mb-5">
+                                            {[scenario.highGroup, scenario.lowGroup].map((grp, i) => (
+                                                <div key={i} className="rounded-xl p-4 border text-center" style={{
+                                                    background: grp.rate >= 50 ? "rgba(16,185,129,0.07)" : "rgba(244,63,94,0.07)",
+                                                    borderColor: grp.rate >= 50 ? "rgba(16,185,129,0.25)" : "rgba(244,63,94,0.25)"
+                                                }}>
+                                                    <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center text-2xl mb-2" style={{ background: "rgba(255,255,255,0.05)" }}>👤</div>
+                                                    <p className="text-white font-black text-sm mb-0.5">{grp.group}</p>
+                                                    {scenario.numericCol && <p className="text-white/35 text-[10px] mb-0.5">{scenario.numericCol}: {scenario.avgValue}</p>}
+                                                    <p className="text-white/30 text-[10px] mb-3">Historical approval rate: {grp.rate}%</p>
+                                                    <div className="py-2 rounded-lg font-black text-sm" style={{
+                                                        background: grp.rate >= 50 ? "rgba(16,185,129,0.2)" : "rgba(244,63,94,0.2)",
+                                                        color: grp.rate >= 50 ? "#34d399" : "#fb7185"
+                                                    }}>
+                                                        {grp.rate >= 50 ? '✅ APPROVED' : '❌ DENIED'}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="rounded-xl p-4 border text-center" style={{ background: "rgba(245,158,11,0.08)", borderColor: "rgba(245,158,11,0.2)" }}>
+                                            <p className="text-amber-400 font-black text-sm">⚠️ Same {scenario.numericCol || 'qualifications'}. Different outcome. That's bias.</p>
+                                            <p className="text-white/45 text-xs mt-1.5 leading-relaxed">
+                                                The model gave <span className="text-white font-bold">{scenario.highGroup.group}</span> a {scenario.highGroup.rate}% approval rate vs only {scenario.lowGroup.rate}% for <span className="text-white font-bold">{scenario.lowGroup.group}</span> — a <span className="text-amber-400 font-bold">{scenario.highGroup.rate - scenario.lowGroup.rate}pp gap</span> driven purely by <span className="text-white font-bold">{attribute}</span>.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Step 5: Debiasing Action Plan */}
+                                {computedResult && (
+                                    <div className="rounded-2xl p-6 border animate-fade-up" style={{ background: "rgba(20,184,166,0.04)", borderColor: "rgba(20,184,166,0.18)" }}>
+                                        <div className="flex items-center gap-3 mb-6">
+                                            <div className="flex items-center justify-center w-7 h-7 rounded-full font-black text-xs border" style={{ background: "rgba(20,184,166,0.2)", color: "#2dd4bf", borderColor: "rgba(20,184,166,0.3)" }}>5</div>
+                                            <div>
+                                                <h2 className="text-sm font-bold text-white">Debiasing Action Plan</h2>
+                                                <p className="text-[10px] text-white/40 mt-0.5">Concrete steps to make your <span className="text-teal-400 font-semibold">{attribute} → {outcome}</span> model fair and compliant.</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-5">
+                                            {/* Phase 1 */}
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-1.5"><BarChart3 size={11} /> Phase 1 — Data</p>
+                                                <div className="space-y-2">
+                                                    {[
+                                                        { n: 1, title: `Audit your data collection process`, desc: `Identify where ${attribute} sampling or labeling gaps are introduced in your pipeline.` },
+                                                        { n: 2, title: `Rebalance training dataset`, desc: `Ensure equal ${attribute} group representation through oversampling, undersampling, or synthetic data.` },
+                                                        { n: 3, title: `Remove proxy features`, desc: `Drop ${attribute} and correlated features (zip code, name, etc.) that act as indirect proxies.` },
+                                                    ].map(s => (
+                                                        <div key={s.n} className="flex gap-3 p-3 rounded-xl border" style={{ background: "rgba(99,102,241,0.05)", borderColor: "rgba(99,102,241,0.12)" }}>
+                                                            <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black mt-0.5" style={{ background: "rgba(99,102,241,0.2)", color: "#818cf8" }}>{s.n}</span>
+                                                            <div><p className="text-xs font-bold text-white">{s.title}</p><p className="text-[11px] text-white/40 mt-0.5 leading-relaxed">{s.desc}</p></div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Phase 2 */}
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-violet-400 mb-3 flex items-center gap-1.5"><Cpu size={11} /> Phase 2 — Model</p>
+                                                <div className="space-y-2">
+                                                    {[
+                                                        { n: 4, title: `Apply algorithmic debiasing`, desc: `Use re-weighting, adversarial debiasing, or fairness constraints during model re-training.` },
+                                                        { n: 5, title: `Set a fairness deployment gate`, desc: `Block deployment if the Disparate Impact Score for ${attribute} drops below 0.80.` },
+                                                        { n: 6, title: `Validate on a fairness benchmark`, desc: `Test re-trained model on a held-out balanced test set before pushing to production.` },
+                                                    ].map(s => (
+                                                        <div key={s.n} className="flex gap-3 p-3 rounded-xl border" style={{ background: "rgba(139,92,246,0.05)", borderColor: "rgba(139,92,246,0.12)" }}>
+                                                            <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black mt-0.5" style={{ background: "rgba(139,92,246,0.2)", color: "#c084fc" }}>{s.n}</span>
+                                                            <div><p className="text-xs font-bold text-white">{s.title}</p><p className="text-[11px] text-white/40 mt-0.5 leading-relaxed">{s.desc}</p></div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Phase 3 */}
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-teal-400 mb-3 flex items-center gap-1.5"><Shield size={11} /> Phase 3 — Governance</p>
+                                                <div className="space-y-2">
+                                                    {[
+                                                        { n: 7, title: `Assign a Fairness Officer`, desc: `Designate a person responsible for quarterly ${attribute} bias reviews and audit sign-offs.` },
+                                                        { n: 8, title: `Document all mitigation steps`, desc: `Required for EU AI Act Article 13, EEOC compliance, and India AI Act transparency obligations.` },
+                                                        { n: 9, title: `Implement continuous monitoring`, desc: `Set automated alerts when the live ${attribute} → ${outcome} fairness score drops below your threshold.` },
+                                                    ].map(s => (
+                                                        <div key={s.n} className="flex gap-3 p-3 rounded-xl border" style={{ background: "rgba(20,184,166,0.05)", borderColor: "rgba(20,184,166,0.12)" }}>
+                                                            <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black mt-0.5" style={{ background: "rgba(20,184,166,0.2)", color: "#2dd4bf" }}>{s.n}</span>
+                                                            <div><p className="text-xs font-bold text-white">{s.title}</p><p className="text-[11px] text-white/40 mt-0.5 leading-relaxed">{s.desc}</p></div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Why this is a good thing */}
+                                        <div className="mt-6 p-4 rounded-xl border" style={{ background: "rgba(16,185,129,0.06)", borderColor: "rgba(16,185,129,0.18)" }}>
+                                            <p className="text-emerald-400 font-black text-xs mb-2 flex items-center gap-1.5"><CheckCircle size={12} /> Is addressing bias a good thing? Absolutely.</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { icon: "⚖️", label: "Legal", desc: "Avoid EU AI Act & EEOC penalties" },
+                                                    { icon: "🤝", label: "Ethical", desc: "Serve all populations equitably" },
+                                                    { icon: "📈", label: "Business", desc: "Expand your addressable market" },
+                                                ].map((b, i) => (
+                                                    <div key={i} className="text-center p-2 rounded-lg" style={{ background: "rgba(16,185,129,0.08)" }}>
+                                                        <p className="text-base mb-1">{b.icon}</p>
+                                                        <p className="text-[10px] font-black text-emerald-400">{b.label}</p>
+                                                        <p className="text-[9px] text-white/35 leading-snug">{b.desc}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Re-Audit CTA */}
+                                        <div className="mt-5 pt-5 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                                            <p className="text-[10px] text-white/30 text-center mb-3">Applied the debiasing steps? Validate your improvement:</p>
+                                            <input ref={reAuditInputRef} type="file" accept=".csv" className="hidden" onChange={handleReAudit} />
+                                            <button
+                                                onClick={() => reAuditInputRef.current?.click()}
+                                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm text-white transition-all active:scale-95 hover:opacity-90"
+                                                style={{ background: "linear-gradient(135deg,#14b8a6,#6366f1)", boxShadow: "0 4px 20px rgba(20,184,166,0.25)" }}
+                                            >
+                                                <RefreshCw size={15} /> Re-Audit After Fix — Upload New CSV
+                                            </button>
+                                            <p className="text-[9px] text-white/20 text-center mt-2">Your old score is saved. Upload the debiased dataset to see the improvement.</p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
