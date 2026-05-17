@@ -101,6 +101,65 @@ Write 2-3 closing sentences on why eliminating this bias is both a legal obligat
         throw lastError || new Error("All Gemini models failed");
     };
 
+    const generateLocalReport = () => {
+        if (!computedResult) return null;
+        const high = computedResult.g[0];
+        const low = computedResult.g[computedResult.g.length - 1];
+        const score = computedResult.score;
+        const sev = computedResult.sev;
+        const gap = computedResult.gap;
+        const total = computedResult.totalRows;
+        const allGroups = computedResult.g.map(g => `${g.group}: ${g.rate}%`).join(', ');
+        const compliant = score >= 0.8;
+        const diff = high.rate - low.rate;
+
+        return `AUDIT METADATA
+Protected Attribute audited: ${attribute}. Decision outcome audited: ${outcome}. Total records analyzed: ${total?.toLocaleString() || 'N/A'}. Disparate Impact Score: ${score.toFixed(2)} (regulatory threshold: 0.80). Risk severity: ${sev}. Group approval rates: ${allGroups}. Approval rate gap: ${gap}.
+
+EXECUTIVE SUMMARY
+This audit detected ${sev.toLowerCase()} bias in the ${outcome} model when evaluated against the ${attribute} attribute. Analysis of ${total?.toLocaleString()} records shows that the ${low.group} group is approved for ${outcome} at a rate of ${low.rate}%, compared to ${high.rate}% for the ${high.group} group — a disparity of ${diff} percentage points. The Disparate Impact Score of ${score.toFixed(2)} ${compliant ? 'meets' : 'falls below'} the regulatory minimum of 0.80, indicating ${compliant ? 'compliance, though ongoing vigilance is required' : 'a clear violation requiring immediate remediation before continued deployment'}.
+
+DETAILED FINDINGS
+The Disparate Impact Score of ${score.toFixed(2)} is computed as the ratio of the lowest group positive rate (${low.group}: ${low.rate}%) to the highest (${high.group}: ${high.rate}%). A score below 0.80 constitutes illegal disparate impact under the EEOC 4/5ths Rule. This ${diff}pp gap means that for every ${high.rate} ${high.group} individuals approved, only ${low.rate} ${low.group} individuals receive the same outcome under otherwise identical conditions. Across the ${total?.toLocaleString()} records analyzed, this disparity has a material and measurable impact on the affected population.
+
+REGULATORY ALIGNMENT
+EU AI Act 2024 — This system qualifies as high-risk under Annex III. Articles 10 (data governance), 13 (transparency), and 14 (human oversight) are implicated. ${!compliant ? 'Immediate suspension of automated decision-making is required pending remediation and re-certification.' : 'Continued monitoring under Article 9 risk management obligations is required.'}
+US EEOC 4/5ths Rule — A Disparate Impact Score of ${score.toFixed(2)} ${!compliant ? 'constitutes actionable disparate impact under Title VII of the Civil Rights Act. The organization faces significant legal exposure including potential class action liability and regulatory fines.' : 'is within the acceptable range under Title VII, though continued documentation of fairness monitoring is recommended.'}
+India AI Governance Framework — Under the Digital Personal Data Protection Act 2023 and India's emerging AI governance guidelines, algorithmic decision-making systems must ensure equitable outcomes across demographic groups. ${!compliant ? 'This result requires documented remediation and a re-audit before continued operation.' : 'The system demonstrates acceptable fairness; documentation of ongoing audits is required for regulatory readiness.'}
+
+RECOMMENDED MITIGATIONS — PHASE 1: DATA
+1. Conduct a thorough audit of the ${attribute} data collection methodology to identify and eliminate sampling biases at the point of data ingestion.
+2. Rebalance the training dataset to ensure proportional representation of all ${attribute} groups, using stratified sampling, oversampling, or synthetic data generation as appropriate.
+3. Remove the ${attribute} attribute and all known correlated proxy variables from the model's input feature set to prevent direct or indirect discriminatory inference.
+
+RECOMMENDED MITIGATIONS — PHASE 2: MODEL
+1. Apply fairness-aware machine learning techniques during model retraining, including sample re-weighting, adversarial debiasing, or fairness constraint optimization.
+2. Establish a minimum Disparate Impact Score of 0.80 as an automated deployment gate — no model version should proceed to production without satisfying this threshold.
+3. Validate the retrained model on a held-out, demographically balanced test dataset before any production release to confirm fairness improvements are statistically significant.
+
+RECOMMENDED MITIGATIONS — PHASE 3: GOVERNANCE
+1. Appoint a designated Fairness Officer with authority to approve or halt deployment of any model affecting ${attribute}-sensitive outcomes, and mandate quarterly ${attribute} bias reviews.
+2. Document all data collection, preprocessing, training, and mitigation steps in a Model Card and Algorithmic Impact Assessment for regulatory audit trails, specifically as required by EU AI Act Article 13.
+3. Implement continuous automated monitoring of the live ${attribute} to ${outcome} Disparate Impact Score, with real-time alerts triggered whenever the score drops below 0.80 in production.
+
+DEBIASING ACTION PLAN SUMMARY
+1. Audit the ${attribute} data collection process for sampling and labeling gaps.
+2. Rebalance training data to achieve equal ${attribute} group representation.
+3. Remove ${attribute} and all correlated proxy features from the model input space.
+4. Apply adversarial debiasing or fairness constraints during model retraining.
+5. Set a minimum Disparate Impact Score of 0.80 as a mandatory deployment gate.
+6. Validate the retrained model on a held-out fairness benchmark prior to deployment.
+7. Appoint a Fairness Officer to oversee quarterly ${attribute} bias reviews and sign-offs.
+8. Document all mitigation steps for EU AI Act Article 13 and EEOC compliance records.
+9. Implement continuous monitoring with automated alerts when the score drops below 0.80.
+
+RE-AUDIT RECOMMENDATION
+After applying the debiasing steps outlined in this report, upload the corrected dataset and re-run this audit using the Re-Audit After Fix feature to validate the improvement. A score of 0.80 or above is required for regulatory compliance, and the platform will automatically generate a before-and-after score comparison to document the remediation for auditors and regulators. This documented improvement trail is essential for demonstrating due diligence under the EU AI Act, EEOC requirements, and India DPDP Act obligations.
+
+CONCLUSION
+Addressing ${attribute}-based bias in ${outcome} decisions is both a legal obligation and a strategic business imperative. Failure to remediate exposes the organization to regulatory penalties, reputational damage, and class action liability under the EU AI Act, US EEOC, and India's DPDP Act. Beyond compliance, building fair AI systems expands the serviceable market, builds institutional trust across all demographic groups, and demonstrates a commitment to ethical technology deployment — a standard that increasingly defines organizational reputation and long-term viability.`;
+    };
+
     useEffect(() => {
         const fetchAnalysis = async () => {
             if (isAuditRunning) return;
@@ -139,9 +198,11 @@ Write 2-3 closing sentences on why eliminating this bias is both a legal obligat
                     setAiReport(data.report);
                     console.log(`[Frontend] Backend call success (${data.model})`);
                 } catch (backendErr) {
-                    // 3️⃣ Final fallback: use computed data to generate local analysis
-                    console.warn("[Frontend] Backend also failed, using local fallback.");
+                    // 3️⃣ Final fallback: generate full local report from computed data
+                    console.warn("[Frontend] Both Gemini and backend failed. Using local structured report.");
                     setAnalysisText(getFallbackText());
+                    const localReport = generateLocalReport();
+                    if (localReport) setAiReport(localReport);
                 }
             } finally {
                 setIsLoading(false);
