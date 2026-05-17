@@ -9,8 +9,8 @@ export default function Navbar() {
     const { user, logout, setShowSignIn, setShowDocs } = useContext(AppContext);
     const navigate = useNavigate();
 
-    const navLinks = ["Platform", "Solutions", "Compliance", "Pricing", "Docs"];
-    const NAV_TARGETS = { Platform: "/dashboard", Solutions: "/", Compliance: "/dashboard", Pricing: "/pricing", Docs: null };
+    const navLinks = ["Home", "Platform", "Solutions", "Compliance", "Pricing", "Docs"];
+    const NAV_TARGETS = { Home: "/", Platform: "/dashboard", Solutions: "/", Compliance: "/dashboard", Pricing: "/pricing", Docs: null };
 
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 20);
