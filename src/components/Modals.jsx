@@ -12,7 +12,7 @@ export default function Modals() {
         showReport, setShowReport,
         toasts, addToast,
         attribute, outcome, computedResult, aiReport, isReportLoading,
-        login,
+        login, register,
         user
     } = useContext(AppContext);
 
@@ -23,31 +23,22 @@ export default function Modals() {
     const [isDownloading, setIsDownloading] = useState(false);
     const [logoError, setLogoError] = useState(false);
     const [isRegister, setIsRegister] = useState(false);
+    const [authLoading, setAuthLoading] = useState(false);
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
 
     const handleAuth = async (e) => {
         e.preventDefault();
-        if (isRegister) {
-            try {
-                const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-                const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password, name })
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    login(email, password);
-                } else {
-                    addToast(data.error || "Registration failed", "warning");
-                }
-            } catch (e) {
-                addToast("Backend server unavailable", "warning");
+        setAuthLoading(true);
+        try {
+            if (isRegister) {
+                await register(email, password, name);
+            } else {
+                await login(email, password);
             }
-        } else {
-            await login(email, password);
+        } finally {
+            setAuthLoading(false);
         }
     };
 
@@ -78,26 +69,69 @@ export default function Modals() {
             };
             addFooter();
 
-            // ── Render content blocks individually to avoid mid-text cuts ──
-            const contentWrapper = contentRef.current;
-            const blocks = Array.from(contentWrapper.children); // each child is a section block
-            const usableWidth = pdfWidth - margin.x * 2;
-            let cursorY = margin.top + headerH + 6;
-            const maxY = footerY - 4;
-
-            for (const block of blocks) {
-                const blockCanvas = await html2canvas(block, { backgroundColor: '#ffffff', scale });
-                const blockH = (blockCanvas.height * usableWidth) / blockCanvas.width;
-
-                // If this block doesn't fit, add a new page
-                if (cursorY + blockH > maxY) {
-                    pdf.addPage();
-                    cursorY = margin.top;
-                    addFooter();
+            // ── Render Text Content Natively ──
+            let cursorY = margin.top + headerH + 10;
+            const maxY = footerY - 10;
+            const textWidth = pdfWidth - margin.x * 2;
+            
+            if (!aiReport) {
+                pdf.setFontSize(10);
+                pdf.setTextColor(100, 100, 100);
+                pdf.text("No report generated. Please run an audit first.", margin.x, cursorY);
+            } else {
+                const HEADER_RE = /^(AUDIT METADATA|EXECUTIVE SUMMARY|DETAILED FINDINGS|REGULATORY ALIGNMENT|RECOMMENDED MITIGATIONS|DEBIASING ACTION PLAN|RE-AUDIT RECOMMENDATION|CONCLUSION)/i;
+                const rawLines = aiReport.split('\n');
+                
+                for (let i = 0; i < rawLines.length; i++) {
+                    const line = rawLines[i].trim();
+                    if (!line) continue;
+                    
+                    const isHeader = HEADER_RE.test(line);
+                    
+                    if (isHeader) {
+                        if (cursorY > margin.top + headerH + 10) {
+                            cursorY += 6; // Extra space before new header (if not first)
+                        }
+                        pdf.setFont("helvetica", "bold");
+                        pdf.setFontSize(11);
+                        pdf.setTextColor(15, 23, 42); // slate-900
+                    } else {
+                        pdf.setFont("helvetica", "normal");
+                        pdf.setFontSize(9);
+                        pdf.setTextColor(51, 65, 85); // slate-700
+                    }
+                    
+                    // Check if we need a new page for the header itself
+                    if (cursorY > maxY) {
+                        pdf.addPage();
+                        addFooter();
+                        cursorY = margin.top + 10;
+                    }
+                    
+                    if (isHeader) {
+                        pdf.text(line, margin.x, cursorY);
+                        // Underline the header
+                        const textW = pdf.getTextWidth(line);
+                        pdf.setDrawColor(15, 23, 42);
+                        pdf.setLineWidth(0.3);
+                        pdf.line(margin.x, cursorY + 1.5, margin.x + textW, cursorY + 1.5);
+                        cursorY += 8; // space after header
+                    } else {
+                        // Regular text, wrap it
+                        const splitText = pdf.splitTextToSize(line, textWidth);
+                        
+                        for (let j = 0; j < splitText.length; j++) {
+                            if (cursorY > maxY) {
+                                pdf.addPage();
+                                addFooter();
+                                cursorY = margin.top + 10;
+                            }
+                            pdf.text(splitText[j], margin.x, cursorY);
+                            cursorY += 5; // line height
+                        }
+                        cursorY += 4; // space after paragraph
+                    }
                 }
-
-                pdf.addImage(blockCanvas.toDataURL('image/png'), 'PNG', margin.x, cursorY, usableWidth, blockH);
-                cursorY += blockH + 4;
             }
 
             pdf.save(`samatva_ai_audit_report_${new Date().getTime()}.pdf`);
@@ -138,8 +172,8 @@ export default function Modals() {
                                 <label className="text-xs font-semibold text-white/45 uppercase tracking-wider block mb-1.5">Password</label>
                                 <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="w-full text-sm text-white bg-white/[0.05] border border-white/[0.1] focus:border-indigo-500/50 rounded-xl px-4 py-2.5 outline-none transition-colors placeholder:text-white/20" required />
                             </div>
-                            <button type="submit" className="w-full text-sm font-bold text-white py-2.5 rounded-xl active:scale-95 transition-all" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 4px 20px rgba(99,102,241,0.35)" }}>
-                                {isRegister ? "Sign Up" : "Sign In"}
+                            <button type="submit" disabled={authLoading} className="w-full text-sm font-bold text-white py-2.5 rounded-xl active:scale-95 transition-all disabled:opacity-60" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 4px 20px rgba(99,102,241,0.35)" }}>
+                                {authLoading ? "Please wait..." : (isRegister ? "Sign Up" : "Sign In")}
                             </button>
                             <p className="text-center text-xs text-white/30 mt-4">
                                 {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
@@ -161,11 +195,15 @@ export default function Modals() {
                         <button onClick={() => setShowDemo(false)} className="absolute top-4 right-4 z-10 text-white/50 hover:text-white transition-colors bg-black/50 rounded-full p-1.5"><X size={18} /></button>
                         <div className="aspect-video bg-black/50 flex items-center justify-center">
                             <div className="text-center">
-                                <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 cursor-pointer hover:scale-110 transition-transform" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 60px rgba(99,102,241,0.4)" }}>
+                                <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 opacity-40" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 60px rgba(99,102,241,0.2)" }}>
                                     <Play size={32} className="text-white fill-white ml-1" />
                                 </div>
                                 <p className="text-white/50 text-sm font-semibold">Samatva AI Platform Demo</p>
                                 <p className="text-white/25 text-xs mt-1">2 min · Product walkthrough</p>
+                                <div className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-amber-400/30 animate-pulse" style={{ background: "rgba(245,158,11,0.1)" }}>
+                                    <span className="text-amber-400 text-lg">🎬</span>
+                                    <p className="text-amber-400 text-sm font-black tracking-wide">Video will be added soon...!</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -406,7 +444,7 @@ export default function Modals() {
             </div>
 
             {/* HIDDEN BRANDED PDF TEMPLATE (LIGHT THEME) */}
-            <div className="fixed left-[-9999px] top-[-9999px] z-[-1] overflow-hidden bg-white">
+            <div className="absolute left-[-9999px] top-0 z-[-1] bg-white" style={{ width: '800px' }}>
 
                 {/* ── PDF Header ── */}
                 <div ref={headerRef} className="w-[800px] bg-white px-12 pt-10 pb-6" style={{ fontFamily: "'Arial', sans-serif" }}>
@@ -485,7 +523,7 @@ export default function Modals() {
                         return sections.map((sec, si) => (
                             <div key={si} style={{ marginBottom: 24, paddingTop: 8 }}>
                                 {/* Section heading — BLACK, bold, uppercase with bottom border */}
-                                <div style={{ borderBottom: "2px solid #0f172a", paddingBottom: 6, marginBottom: 12 }}>
+                                <div className="pdf-block section-header" style={{ borderBottom: "2px solid #0f172a", paddingBottom: 6, marginBottom: 12 }}>
                                     <p style={{ fontSize: 10, fontWeight: 900, color: "#0f172a", textTransform: "uppercase", letterSpacing: "0.15em", margin: 0 }}>{sec.title}</p>
                                 </div>
                                 {/* Section content */}
@@ -493,18 +531,18 @@ export default function Modals() {
                                     {sec.lines.map((para, pi) => {
                                         const numMatch = para.match(/^(\d+)\.\s+(.+)/);
                                         if (numMatch) return (
-                                            <div key={pi} style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
+                                            <div key={pi} className="pdf-block" style={{ display: "flex", gap: 10, marginBottom: 6, alignItems: "flex-start" }}>
                                                 <span style={{ minWidth: 20, height: 20, background: "#e0e7ff", color: "#3730a3", borderRadius: "50%", fontSize: 9, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{numMatch[1]}</span>
                                                 <p style={{ fontSize: 12, color: "#1e293b", lineHeight: 1.7, margin: 0 }}>{numMatch[2]}</p>
                                             </div>
                                         );
                                         if (/^(EU AI Act|US EEOC|India|EEOC)/i.test(para.replace(/^\d+\.\s*/, ''))) return (
-                                            <div key={pi} style={{ display: "flex", gap: 8, marginBottom: 6, paddingLeft: 8, alignItems: "flex-start" }}>
+                                            <div key={pi} className="pdf-block" style={{ display: "flex", gap: 8, marginBottom: 6, paddingLeft: 8, alignItems: "flex-start" }}>
                                                 <span style={{ color: "#4f46e5", fontWeight: 900, fontSize: 11, flexShrink: 0 }}>▸</span>
                                                 <p style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, margin: 0 }}>{para.replace(/^\d+\.\s*/, '')}</p>
                                             </div>
                                         );
-                                        return <p key={pi} style={{ fontSize: 12, color: "#334155", lineHeight: 1.8, marginBottom: 6 }}>{para}</p>;
+                                        return <p key={pi} className="pdf-block" style={{ fontSize: 12, color: "#334155", lineHeight: 1.8, marginBottom: 6 }}>{para}</p>;
                                     })}
                                 </div>
                             </div>

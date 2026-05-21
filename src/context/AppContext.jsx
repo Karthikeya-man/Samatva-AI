@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useRef } from 'react';
 
 export const AppContext = createContext();
 
@@ -7,6 +7,7 @@ export const AppProvider = ({ children }) => {
     const [user, setUser] = useState(JSON.parse(localStorage.getItem('samatva_user')) || null);
     const [token, setToken] = useState(localStorage.getItem('samatva_token') || null);
     const [auditHistory, setAuditHistory] = useState([]);
+    const [backendAvailable, setBackendAvailable] = useState(false);
 
     // Data & Audit State
     const [attribute, setAttribute] = useState("Gender");
@@ -34,7 +35,23 @@ export const AppProvider = ({ children }) => {
 
     const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-    // Auth Actions
+    // ── Backend Health Check ──
+    const checkBackendHealth = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+            if (response.ok) {
+                setBackendAvailable(true);
+                console.log("[App] Backend is available");
+                return true;
+            }
+        } catch (e) {
+            console.warn("[App] Backend unavailable:", e.message);
+        }
+        setBackendAvailable(false);
+        return false;
+    };
+
+    // ── Auth Actions ──
     const login = async (email, password) => {
         try {
             const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
@@ -51,11 +68,40 @@ export const AppProvider = ({ children }) => {
                 addToast(`Welcome back, ${data.user.name || data.user.email}!`, "success");
                 setShowSignIn(false);
                 fetchHistory(data.user.id, data.token);
+                return { success: true };
             } else {
-                addToast(data.error || "Login failed", "warning");
+                addToast(data.error || data.detail || "Login failed", "warning");
+                return { success: false, error: data.error || data.detail };
             }
         } catch (e) {
             addToast("Backend server unavailable", "warning");
+            return { success: false, error: "Backend server unavailable" };
+        }
+    };
+
+    const register = async (email, password, name) => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, name })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setUser(data.user);
+                setToken(data.token);
+                localStorage.setItem('samatva_user', JSON.stringify(data.user));
+                localStorage.setItem('samatva_token', data.token);
+                addToast(`Welcome, ${data.user.name || data.user.email}! Account created.`, "success");
+                setShowSignIn(false);
+                return { success: true };
+            } else {
+                addToast(data.error || data.detail || "Registration failed", "warning");
+                return { success: false, error: data.error || data.detail };
+            }
+        } catch (e) {
+            addToast("Backend server unavailable", "warning");
+            return { success: false, error: "Backend server unavailable" };
         }
     };
 
@@ -85,7 +131,25 @@ export const AppProvider = ({ children }) => {
         }
     };
 
+    const deleteAudit = async (auditId) => {
+        if (!token) return;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/audits/${auditId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setAuditHistory(prev => prev.filter(a => a.id !== auditId));
+                addToast("Audit deleted", "info");
+            }
+        } catch (e) {
+            console.error("Failed to delete audit", e);
+        }
+    };
+
+    // ── On mount: check backend health & load history ──
     useEffect(() => {
+        checkBackendHealth();
         if (user && token) {
             fetchHistory();
         }
@@ -97,7 +161,8 @@ export const AppProvider = ({ children }) => {
             user, setUser,
             token, setToken,
             auditHistory, setAuditHistory,
-            login, logout, fetchHistory,
+            backendAvailable, API_BASE_URL,
+            login, register, logout, fetchHistory, deleteAudit,
             attribute, setAttribute,
             outcome, setOutcome,
             parsedData, setParsedData,
@@ -116,4 +181,3 @@ export const AppProvider = ({ children }) => {
         </AppContext.Provider>
     );
 };
-

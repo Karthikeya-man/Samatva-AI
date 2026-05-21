@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export default function GeminiEthicist({ isAuditRunning }) {
-    const { user, attribute, outcome, computedResult, addToast, setAiReport, setIsReportLoading } = useContext(AppContext);
+    const { user, attribute, outcome, computedResult, addToast, setAiReport, setIsReportLoading, backendAvailable, API_BASE_URL } = useContext(AppContext);
     const [analysisText, setAnalysisText] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [typedText, setTypedText] = useState("");
@@ -19,6 +19,30 @@ export default function GeminiEthicist({ isAuditRunning }) {
             return `Analysis of ${computedResult.totalRows.toLocaleString()} records: The ${attribute} attribute shows a disparate impact score of ${computedResult.score.toFixed(2)} for ${outcome}. The ${high.group} group has a ${high.rate}% positive rate vs ${low.rate}% for ${low.group} — a ${computedResult.gap} gap. ${computedResult.sev === 'Critical' || computedResult.sev === 'High' ? 'This constitutes a significant fairness violation under the 4/5ths rule and likely violates EU AI Act Article 10.' : 'While the gap exists, it falls within borderline compliance. Continuous monitoring is recommended.'}`;
         }
         return "Applicant #402, despite identical financial records, was denied solely based on gender. This is the systematic digitisation of historical prejudice, perpetuating intergenerational wealth gaps. The model has learned to use gender as a proxy for creditworthiness, a pattern that directly violates EEOC and EU AI Act Article 10 requirements.";
+    };
+
+    // Call the backend /api/audit endpoint
+    const callBackendAudit = async () => {
+        const apiBaseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiBaseUrl}/api/audit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                attribute,
+                outcome,
+                score: computedResult?.score || 0.74,
+                lowGroup: computedResult?.g[computedResult.g.length - 1]?.group || "Underrepresented",
+                lowRate: computedResult?.g[computedResult.g.length - 1]?.rate || 0,
+                highGroup: computedResult?.g[0]?.group || "Majority",
+                highRate: computedResult?.g[0]?.rate || 0,
+                userId: user?.id || null
+            })
+        });
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || errData.detail || "Backend API failure");
+        }
+        return await response.json();
     };
 
     // Try direct Gemini call from browser (works on Vercel with no backend)
@@ -168,38 +192,22 @@ Addressing ${attribute}-based bias in ${outcome} decisions is both a legal oblig
             setAnalysisText("");
 
             try {
-                // 1️⃣ Try direct Gemini call first (works on Vercel, no backend needed)
-                const data = await callGeminiFrontend();
+                // 1️⃣ Try backend first — this saves audits to DB and uses server-side caching
+                const data = await callBackendAudit();
                 setAnalysisText(data.analysis);
                 setAiReport(data.report);
-                console.log(`[Frontend] Direct Gemini call success (${data.model})`);
-            } catch (frontendErr) {
-                console.warn("[Frontend] Direct Gemini call failed, trying backend...", frontendErr.message);
+                console.log(`[Frontend] Backend audit success (${data.model})`);
+            } catch (backendErr) {
+                console.warn("[Frontend] Backend call failed, trying direct Gemini...", backendErr.message);
                 try {
-                    // 2️⃣ Fall back to backend if available
-                    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-                    const response = await fetch(`${API_BASE_URL}/api/audit`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            attribute,
-                            outcome,
-                            score: computedResult?.score || 0.74,
-                            lowGroup: computedResult?.g[computedResult.g.length - 1]?.group || "Underrepresented",
-                            lowRate: computedResult?.g[computedResult.g.length - 1]?.rate || 0,
-                            highGroup: computedResult?.g[0]?.group || "Majority",
-                            highRate: computedResult?.g[0]?.rate || 0,
-                            userId: user?.id
-                        })
-                    });
-                    if (!response.ok) throw new Error("Backend API failure");
-                    const data = await response.json();
+                    // 2️⃣ Fall back to direct Gemini call (works on Vercel with no backend)
+                    const data = await callGeminiFrontend();
                     setAnalysisText(data.analysis);
                     setAiReport(data.report);
-                    console.log(`[Frontend] Backend call success (${data.model})`);
-                } catch (backendErr) {
+                    console.log(`[Frontend] Direct Gemini call success (${data.model})`);
+                } catch (frontendErr) {
                     // 3️⃣ Final fallback: generate full local report from computed data
-                    console.warn("[Frontend] Both Gemini and backend failed. Using local structured report.");
+                    console.warn("[Frontend] Both backend and Gemini failed. Using local structured report.");
                     setAnalysisText(getFallbackText());
                     const localReport = generateLocalReport();
                     if (localReport) setAiReport(localReport);
